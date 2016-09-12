@@ -94,7 +94,6 @@ func PutActive(w rest.ResponseWriter, r *rest.Request) {
 	} else {
 		log.Println("body: ", string(b[:]))
 	}
-	log.Printf("active: %s", active.String())
 
 	err = r.DecodeJsonPayload(&active)
 	if err != nil {
@@ -106,7 +105,7 @@ func PutActive(w rest.ResponseWriter, r *rest.Request) {
 
 	lock.RLock()
 	AllActive.Active = active.Active
-	AllActive.Enable()
+
 	err = w.WriteJson(active)
 	if err != nil {
 		log.Println(err)
