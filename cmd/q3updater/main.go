@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"gopkg.in/alecthomas/kingpin.v2"
 )
@@ -27,8 +28,9 @@ var (
 	labDataServer  = kingpin.Flag("labdata-server", "REST endpoint for the lab data server").Default(labDataServerDefault).OverrideDefaultFromEnvar("LABDATA_SERVER").Short('d').String()
 	lock           = sync.RWMutex{}
 
-	Client    *apiclient.Labreserved
-	AllActive = q3updater.NewActive()
+	Client        *apiclient.Labreserved
+	AllActive     = q3updater.NewActive()
+	JournalTicker = time.NewTicker(time.Second * 1)
 )
 
 const (
@@ -72,8 +74,26 @@ func main() {
 		log.Fatal(err)
 	}
 	api.SetApp(router)
+	CheckJournal()
+	err = http.ListenAndServe(fmt.Sprintf(":%d", *port), api.MakeHandler())
+	JournalTicker.Stop()
+	fmt.Println("Ticker stopped")
+	log.Fatal(err)
+}
 
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *port), api.MakeHandler()))
+func CheckJournal() {
+	go func() {
+		for t := range JournalTicker.C {
+			fmt.Println("Tick at", t)
+			je, err := q3updater.GetJournalEntry(*journalServer)
+
+			if err != nil {
+				log.Println(err)
+			}
+			res := q3updater.NewReservationFromJournalEntry(*je)
+			_ = res
+		}
+	}()
 }
 
 func GetActive(w rest.ResponseWriter, r *rest.Request) {
