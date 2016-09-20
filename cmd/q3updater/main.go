@@ -22,27 +22,39 @@ import (
 var (
 	verbose = kingpin.Flag("verbose", "Verbose mode.").Short('v').Bool()
 	port    = kingpin.Flag("port", "port to listen on").Default(listenPortDefault).OverrideDefaultFromEnvar("PORT").Short('l').Int()
+	ticker  = kingpin.Flag("ticker", "seconds between polling events").Default(fmt.Sprintf("%d", tickerDefault)).Short('t').Int64()
+	team    = kingpin.Flag("team", "team id").Default(fmt.Sprintf("%d", teamDefault)).OverrideDefaultFromEnvar("TEAM_ID").Int()
 
 	journalServer  = kingpin.Flag("journal-server", "REST endpoint for the journal server").Default(journalServerDefault).OverrideDefaultFromEnvar("JOURNAL_SERVER").Short('j').String()
 	approvalServer = kingpin.Flag("approval-server", "REST endpoint for the approval server").Default(approvalServerDefault).OverrideDefaultFromEnvar("APPROVAL_SERVER").Short('a').String()
 	labDataServer  = kingpin.Flag("labdata-server", "REST endpoint for the lab data server").Default(labDataServerDefault).OverrideDefaultFromEnvar("LABDATA_SERVER").Short('d').String()
 	lock           = sync.RWMutex{}
 
-	Client        *apiclient.Labreserved
-	AllActive     = q3updater.NewActive()
-	JournalTicker = time.NewTicker(time.Second * 1)
+	Client         *apiclient.Labreserved
+	journalTicker  *time.Ticker
+	approvalTicker *time.Ticker
 )
 
 const (
+	teamDefault           = 7357
+	tickerDefault         = 5
 	listenPortDefault     = "8083"
 	journalServerDefault  = "http://journal.butterhead.net:8080"
-	approvalServerDefault = "http://q3.butterhead.net:2080"
+	approvalServerDefault = "http://approval.vmwaredevops.appspot.com"
 	labDataServerDefault  = "labreserved.butterhead.net:2080"
 )
 
 func init() {
 	setupFlags()
 	q3updater.Verbose = *verbose
+	q3updater.Team = *team
+	q3updater.JournalServer = *journalServer
+	q3updater.ApprovalServer = *approvalServer
+	q3updater.LabDataServer = *labDataServer
+
+	q3updater.JournalTicker = time.NewTicker(time.Second * time.Duration(*ticker))
+	q3updater.ApprovalTicker = time.NewTicker(time.Second * time.Duration(*ticker))
+
 }
 
 func setupFlags() {
@@ -51,7 +63,6 @@ func setupFlags() {
 }
 
 func main() {
-
 	transport := httptransport.New(*labDataServer, "", []string{"http"})
 	Client = apiclient.New(transport, strfmt.Default)
 
@@ -67,71 +78,26 @@ func main() {
 			w.WriteJson(statusMw.GetStatus())
 		}),
 
-		rest.Get("/active", GetActive),
-		rest.Put("/active", PutActive),
+		rest.Get("/active", q3updater.GetActive),
+		rest.Put("/active", q3updater.PutActive),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 	api.SetApp(router)
-	CheckJournal()
+
+	// Continually check the Journal for new reservations
+	// and send them on for approval
+	q3updater.SendReservationForApproval()
+
+	// also poll approval service and send approved
+	// on to be recorded
+	q3updater.SendApprovedToReserved()
+
 	err = http.ListenAndServe(fmt.Sprintf(":%d", *port), api.MakeHandler())
-	JournalTicker.Stop()
+	q3updater.JournalTicker.Stop()
+	q3updater.ApprovalTicker.Stop()
+
 	fmt.Println("Ticker stopped")
 	log.Fatal(err)
-}
-
-func CheckJournal() {
-	go func() {
-		for t := range JournalTicker.C {
-			fmt.Println("Tick at", t)
-			je, err := q3updater.GetJournalEntry(*journalServer)
-
-			if err != nil {
-				log.Println(err)
-			}
-			res := q3updater.NewReservationFromJournalEntry(*je)
-			_ = res
-		}
-	}()
-}
-
-func GetActive(w rest.ResponseWriter, r *rest.Request) {
-	lock.RLock()
-	w.WriteJson(AllActive)
-	lock.RUnlock()
-}
-
-func PutActive(w rest.ResponseWriter, r *rest.Request) {
-	active := q3updater.NewActive()
-
-	var b []byte
-	_, err := r.Body.Read(b)
-	if err != nil {
-		log.Println(err)
-		rest.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	} else {
-		log.Println("body: ", string(b[:]))
-	}
-
-	err = r.DecodeJsonPayload(&active)
-	if err != nil {
-		log.Println(err)
-		rest.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	log.Printf("active: %s", active.String())
-
-	lock.RLock()
-	AllActive.Active = active.Active
-
-	err = w.WriteJson(active)
-	if err != nil {
-		log.Println(err)
-		rest.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	lock.RUnlock()
 }

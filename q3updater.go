@@ -1,8 +1,10 @@
 package q3updater
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -12,6 +14,9 @@ import (
 
 // Verbose lets other packages know we want to be noisey
 var Verbose = true
+
+// Team is the team id
+var Team int
 
 type JournalEntry struct {
 	Id      int    `json:"id"`
@@ -23,54 +28,20 @@ type Reservation struct {
 	StartDate  time.Time `json:"start_date,omitempty"`
 	EndDate    time.Time `json:"end_date,omitempty"`
 	ServerName string    `json:"server_name,omitempty"`
+	Approved   bool      `json:"approved"`
 }
 
-type Approval struct {
-	Id          int    `json:"id,omitempty"`
-	TeamId      int    `json:"teamID,omitempty"`
-	Blob        int    `json:"blob,omitempty"`
-	Description string `json:"description,omitempty"`
-	Approved    bool   `json:"approved,omitempty"`
-}
+var (
+	JournalId = 0
 
-type Active struct {
-	Id     int  `json:"id,omitempty"`
-	Active bool `json:"active,bool"`
-}
-
-func NewActive() Active {
-	a := new(Active)
-	a.Enable()
-	return *a
-}
-
-func (a *Active) Enable() {
-
-	a.Id = 1
-	a.Active = true
-}
-
-func (a *Active) Disable() {
-
-	a.Id = 1
-	a.Active = true
-}
-
-// returns JSON string
-func (a Active) String() string {
-	b, err := json.Marshal(a)
-
-	if err != nil {
-		log.Println(err)
-	}
-
-	s := string(b[:])
-	return s
-}
-
-var JournalId = 0
+	JournalServer  string
+	ApprovalServer string
+	LabDataServer  string
+)
 
 func NewJournalEntryFromJson(jsonStr []byte) *JournalEntry {
+	log.Println("in NewJournalEntryFromJson")
+
 	entry := new(JournalEntry)
 	err := json.Unmarshal(jsonStr, entry)
 	if err != nil {
@@ -81,6 +52,8 @@ func NewJournalEntryFromJson(jsonStr []byte) *JournalEntry {
 }
 
 func NewReservationFromJournalEntry(entry JournalEntry) *Reservation {
+	log.Println("in NewReservationFromJournalEntry")
+
 	res := new(Reservation)
 
 	decoded, err := base64.StdEncoding.DecodeString(entry.Message)
@@ -96,14 +69,14 @@ func NewReservationFromJournalEntry(entry JournalEntry) *Reservation {
 }
 
 func GetJournalEntry(server string) (*JournalEntry, error) {
-	log.Println("Getting journal entry")
+	log.Println("GetJournalEntry: Getting journal entry")
 	entry := new(JournalEntry)
 
 	// create the request
 	url := fmt.Sprintf("%s/%s", server, "api/topic/10")
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Println(err)
+		log.Println("GetJournalEntry:", err)
 		return entry, err
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -112,15 +85,74 @@ func GetJournalEntry(server string) (*JournalEntry, error) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Println(err)
+		log.Println("GetJournalEntry:", err)
 		return entry, err
 	}
 
 	defer resp.Body.Close()
 
-	log.Println("response Status:", resp.Status)
-	log.Println("response Headers:", resp.Header)
+	log.Println("GetJournalEntry: response Status:", resp.Status)
+	log.Println("GetJournalEntry: response Headers:", resp.Header)
 	body, _ := ioutil.ReadAll(resp.Body)
-	log.Println("response Body:", string(body))
+	log.Println("GetJournalEntry: response Body:", string(body))
+
+	err = json.Unmarshal(body, entry)
+	if err != nil {
+		log.Println("GetJournalEntry:", err)
+		return entry, err
+	}
+
 	return entry, nil
+}
+
+func PostApprovedToReservation(server string, approved *Approval) error {
+	log.Println("PostApprovedToReservation: sending approved to reservation")
+
+	if approved.Approved != true {
+		return errors.New("Attempted to register a non-approved reservation")
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(approved.Description)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+
+	reservation := new(Reservation)
+	err = json.Unmarshal(decoded, reservation)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+
+	if reservation.ServerName == "" {
+		return errors.New("decoded invalid reservation")
+	}
+
+	// create the request
+	url := fmt.Sprintf("%s/%s/%s/%s", server, "item", reservation.ServerName, "reservation")
+	log.Printf("PostApprovedToReservation: %s, data: %s", url, decoded)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(decoded))
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// send the request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	log.Println("PostApprovedToReservation: response Status:", resp.Status)
+	log.Println("PostApprovedToReservation: response Headers:", resp.Header)
+	body, _ := ioutil.ReadAll(resp.Body)
+	log.Println("PostApprovedToReservation: response Body:", string(body))
+	return nil
 }
