@@ -56,11 +56,14 @@ func GetApproved(server string, teamID int) ([]Approval, error) {
 	}
 	defer resp.Body.Close()
 
-	log.Println("GetApproved: response Status:", resp.Status)
-	log.Println("GetApproved: response Headers:", resp.Header)
 	body, _ := ioutil.ReadAll(resp.Body)
-	log.Println("GetApproved: response Body:", string(body))
 
+	if Verbose {
+		log.Println("GetApproved: response Status:", resp.Status)
+		log.Println("GetApproved: response Headers:", resp.Header)
+
+		log.Println("GetApproved: response Body:", string(body))
+	}
 	err = json.Unmarshal(body, &approvals)
 	if err != nil {
 		log.Println("GetApproved", err)

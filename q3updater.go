@@ -23,12 +23,20 @@ type JournalEntry struct {
 	Message string `json:"message"`
 }
 
-type Reservation struct {
+
+type SoapReservation struct {
 	Name       string    `json:"name,omitempty"`
 	StartDate  time.Time `json:"start_date,omitempty"`
 	EndDate    time.Time `json:"end_date,omitempty"`
 	ServerName string    `json:"server_name,omitempty"`
 	Approved   bool      `json:"approved"`
+}
+
+type Reservation struct {
+	Approved *bool `json:"approved"`
+	Begin time.Time `json:"begin"`
+	End time.Time `json:"end"`
+	Username *string `json:"username"`
 }
 
 var (
@@ -68,6 +76,37 @@ func NewReservationFromJournalEntry(entry JournalEntry) *Reservation {
 	return res
 }
 
+
+func (r Reservation) Bytes() []byte {
+	b, err := json.Marshal(r)
+
+	if err != nil {
+		log.Println(err)
+	}
+	return b
+}
+func (r Reservation) String() string {
+
+	b := r.Bytes()
+	s := string(b[:])
+	return s
+}
+
+func (r SoapReservation) Bytes() []byte {
+	b, err := json.Marshal(r)
+
+	if err != nil {
+		log.Println(err)
+	}
+	return b
+}
+func (r SoapReservation) String() string {
+
+	b := r.Bytes()
+	s := string(b[:])
+	return s
+}
+
 func GetJournalEntry(server string) (*JournalEntry, error) {
 	log.Println("GetJournalEntry: Getting journal entry")
 	entry := new(JournalEntry)
@@ -91,10 +130,14 @@ func GetJournalEntry(server string) (*JournalEntry, error) {
 
 	defer resp.Body.Close()
 
-	log.Println("GetJournalEntry: response Status:", resp.Status)
-	log.Println("GetJournalEntry: response Headers:", resp.Header)
 	body, _ := ioutil.ReadAll(resp.Body)
-	log.Println("GetJournalEntry: response Body:", string(body))
+
+	if Verbose {
+		log.Println("GetJournalEntry: response Status:", resp.Status)
+		log.Println("GetJournalEntry: response Headers:", resp.Header)
+
+		log.Println("GetJournalEntry: response Body:", string(body))
+	}
 
 	err = json.Unmarshal(body, entry)
 	if err != nil {
@@ -106,9 +149,10 @@ func GetJournalEntry(server string) (*JournalEntry, error) {
 }
 
 func PostApprovedToReservation(server string, approved *Approval) error {
+
 	log.Println("PostApprovedToReservation: sending approved to reservation")
 
-	if approved.Approved != true {
+	if !approved.Approved {
 		return errors.New("Attempted to register a non-approved reservation")
 	}
 
@@ -118,22 +162,29 @@ func PostApprovedToReservation(server string, approved *Approval) error {
 		return err
 	}
 
-	reservation := new(Reservation)
+	// convert from a soapUI object
+	reservation := new(SoapReservation)
 	err = json.Unmarshal(decoded, reservation)
 	if err != nil {
 		log.Println(err)
 		return err
 	}
+		newReservation := new(Reservation)
 
-	if reservation.ServerName == "" {
+	newReservation.Username = &reservation.Name
+	newReservation.Begin = reservation.StartDate
+	newReservation.End = reservation.EndDate
+	newReservation.Approved = &approved.Approved
+
+	if reservation.Name == "" {
 		return errors.New("decoded invalid reservation")
 	}
 
 	// create the request
 	url := fmt.Sprintf("%s/%s/%s/%s", server, "item", reservation.ServerName, "reservation")
-	log.Printf("PostApprovedToReservation: %s, data: %s", url, decoded)
+	log.Printf("PostApprovedToReservation: %s, data: %s", url, newReservation)
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(decoded))
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(newReservation.Bytes()))
 	if err != nil {
 		log.Println(err)
 		return err
@@ -150,9 +201,12 @@ func PostApprovedToReservation(server string, approved *Approval) error {
 
 	defer resp.Body.Close()
 
-	log.Println("PostApprovedToReservation: response Status:", resp.Status)
-	log.Println("PostApprovedToReservation: response Headers:", resp.Header)
 	body, _ := ioutil.ReadAll(resp.Body)
-	log.Println("PostApprovedToReservation: response Body:", string(body))
+//	if Verbose {
+		log.Println("PostApprovedToReservation: response Status:", resp.Status)
+		log.Println("PostApprovedToReservation: response Headers:", resp.Header)
+
+		log.Println("PostApprovedToReservation: response Body:", string(body))
+	//}
 	return nil
 }

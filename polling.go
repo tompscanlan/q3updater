@@ -10,7 +10,6 @@ func SendReservationForApproval() {
 	go func() {
 		for t := range JournalTicker.C {
 			log.Printf("Send Reservation Tick at %v", t)
-			log.Printf("Active: %v", Activity.Active)
 
 			// skip this check if we're in active
 			if !Activity.Active {
@@ -24,11 +23,15 @@ func SendReservationForApproval() {
 				log.Println(err)
 				continue
 			}
-			log.Printf("returned je: %v", *je)
 			// send it for approval
 			if je.Message != "" {
+				log.Printf("got journal Entry and sending it to ApprovalServer: %v", *je)
+
 				err := PostForApproval(ApprovalServer, je)
+							if err != nil {
+
 				log.Printf("failed to send a journal entry to approval: %s", err)
+				}
 			}
 
 		}
@@ -41,7 +44,7 @@ func SendApprovedToReserved() {
 	go func() {
 		for t := range ApprovalTicker.C {
 			log.Printf("Record Approved Tick at %v", t)
-			log.Printf("Active: %v", Activity.Active)
+
 			// skip this check if we're in active
 			if !Activity.Active {
 				log.Println("Skipping tick")
@@ -54,16 +57,20 @@ func SendApprovedToReserved() {
 				continue
 			}
 
-			log.Printf("returned approvals : %d", len(approved))
 			for _, a := range approved {
 
-				if a.Description != "" && LastApprovedSent <= a.Id {
-
-					err := PostApprovedToReservation(LabDataServer, &a)
-					log.Printf("failed to send an approved reservation: %s", err)
-					LastApprovedSent = a.Id
-
+				if a.Description == "" || a.Approved == false || LastApprovedSent >= a.Id {
+					continue
 				}
+				log.Printf("Found %d approvals. operating on %d", len(approved), a.Id)
+
+				err := PostApprovedToReservation(LabDataServer, &a)
+				if err != nil {
+					log.Printf("failed to send an approved reservation: %s", err)
+					continue
+				}
+				LastApprovedSent = a.Id
+
 			}
 
 		}
