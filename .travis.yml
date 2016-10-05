@@ -11,5 +11,6 @@ script:
   - make docker
   - docker run -d -p9999:80 --name updater tompscanlan/q3updater
   - docker logs updater
+after_success:
   - docker login -e="$DOCKER_EMAIL" -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
   - docker push tompscanlan/q3updater
