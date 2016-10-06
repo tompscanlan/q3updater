@@ -202,11 +202,11 @@ func PostApprovedToReservation(server string, approved *Approval) error {
 	defer resp.Body.Close()
 
 	body, _ := ioutil.ReadAll(resp.Body)
-//	if Verbose {
+	if Verbose {
 		log.Println("PostApprovedToReservation: response Status:", resp.Status)
 		log.Println("PostApprovedToReservation: response Headers:", resp.Header)
 
 		log.Println("PostApprovedToReservation: response Body:", string(body))
-	//}
+	}
 	return nil
 }

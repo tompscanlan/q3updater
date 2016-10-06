@@ -13,4 +13,6 @@ script:
   - docker logs updater
 after_success:
   - docker login -e="$DOCKER_EMAIL" -u="$DOCKER_USERNAME" -p="$DOCKER_PASSWORD"
-  - docker push tompscanlan/q3updater
+  - docker tag tompscanlan/q3updater tompscanlan/q3updater:${TRAVIS_BRANCH}
+  - docker push tompscanlan/q3updater:latest
+  - docker push tompscanlan/q3updater:${TRAVIS_BRANCH}
