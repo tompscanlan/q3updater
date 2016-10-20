@@ -37,7 +37,7 @@ var (
 
 const (
 	teamDefault           = 7357
-	tickerDefault         = 5
+	tickerDefault         = 1
 	listenPortDefault     = "8083"
 	journalServerDefault  = "http://journal.butterhead.net:8080"
 	approvalServerDefault = "http://approval.vmwaredevops.appspot.com"
